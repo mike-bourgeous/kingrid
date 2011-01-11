@@ -132,7 +132,7 @@ void depth(freenect_device *kn_dev, void *depthbuf, uint32_t timestamp)
 		int gridx = PX_TO_GRIDX(i);
 		int gridy = PX_TO_GRIDY(i);
 
-		div_pix[gridy][gridx]++; // TODO: Calculate this grid once
+		div_pix[gridy][gridx]++; // TODO: Calculate this only once
 		if(buf[i] == 2047) {
 			oor_count[gridy][gridx]++;
 			oor_total++;
