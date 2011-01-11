@@ -81,7 +81,6 @@ void grid_hline()
 void grid_box_row(const char *text)
 {
 	printf("| %*s ", boxwidth, text);
-	fflush(stdout); // XXX
 }
 
 // Prints a formatted single row in a single grid box
