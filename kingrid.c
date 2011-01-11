@@ -52,11 +52,13 @@ static float depth_lut[2048];
 static int out_of_range = 0;
 static int divisions = 6; // Grid divisions
 static int boxwidth = 10; // Display grid box width, less border and padding
+static int histrows = 8; // Number of histogram rows per grid box
 static unsigned int frame = 0; // Frame count
 
 static enum {
-	GRID,
-} disp_mode = GRID;
+	STATS,
+	HISTOGRAM,
+} disp_mode = STATS;
 
 void repeat_char(int c, int count)
 {
@@ -74,7 +76,7 @@ void grid_hline()
 		putchar('+');
 		repeat_char('-', boxwidth + 2);
 	}
-	printf("+\n");
+	puts("+");
 }
 
 // Prints a single row in a single grid box
@@ -99,9 +101,19 @@ void __attribute__((format(printf, 1, 2))) grid_entry(const char *format, ...)
 // Prints a horizontal bar chart element in a grid box
 void grid_bar(int c, int percent)
 {
-	putchar(' ');
-	repeat_char(c, boxwidth * percent / 100);
-	repeat_char(' ', boxwidth * (100 - percent) / 100);
+	int charcount;
+
+	if(percent > 100) {
+		percent = 100;
+	} else if(percent < 0) {
+		percent = 0;
+	}
+
+	charcount = percent * boxwidth / 100;
+
+	printf("| ");
+	repeat_char(c, charcount);
+	repeat_char(' ', boxwidth - charcount);
 	putchar(' ');
 }
 
@@ -179,40 +191,57 @@ void depth(freenect_device *kn_dev, void *depthbuf, uint32_t timestamp)
 	for(i = 0; i < divisions; i++) {
 		grid_hline();
 
-		// This would be an interesting use of lambdas to return the
-		// value for a given column, allowing a "grid_row" function to
-		// be produced:
-		// grid_row("Pix %d", int lambda(int j) { return div_pix[i][j]; })
+		switch(disp_mode) {
+			case STATS:
+				// This would be an interesting use of lambdas to return the
+				// value for a given column, allowing a "grid_row" function to
+				// be produced:
+				// grid_row("Pix %d", int lambda(int j) { return div_pix[i][j]; })
 
-		for(j = 0; j < divisions; j++) {
-			grid_entry("Pix %d", div_pix[i][j]);
-		}
-		printf("|\n");
+				for(j = 0; j < divisions; j++) {
+					grid_entry("Pix %d", div_pix[i][j]);
+				}
+				puts("|");
 
-		for(j = 0; j < divisions; j++) {
-			grid_entry("Avg %f", depth_lut[(int)avg[i][j]]);
-		}
-		printf("|\n");
+				for(j = 0; j < divisions; j++) {
+					grid_entry("Avg %f", depth_lut[(int)avg[i][j]]);
+				}
+				puts("|");
 
-		for(j = 0; j < divisions; j++) {
-			grid_entry("Min %f", depth_lut[min[i][j]]);
-		}
-		printf("|\n");
+				for(j = 0; j < divisions; j++) {
+					grid_entry("Min %f", depth_lut[min[i][j]]);
+				}
+				puts("|");
 
-		for(j = 0; j < divisions; j++) {
-			grid_entry("Med ~%f", depth_lut[median[i][j]]);
-		}
-		printf("|\n");
+				for(j = 0; j < divisions; j++) {
+					grid_entry("Med ~%f", depth_lut[median[i][j]]);
+				}
+				puts("|");
 
-		for(j = 0; j < divisions; j++) {
-			grid_entry("Max %f", depth_lut[max[i][j]]);
-		}
-		printf("|\n");
+				for(j = 0; j < divisions; j++) {
+					grid_entry("Max %f", depth_lut[max[i][j]]);
+				}
+				puts("|");
 
-		for(j = 0; j < divisions; j++) {
-			grid_entry("Out %d%%", oor_count[i][j] * 100 / div_pix[i][j]);
+				for(j = 0; j < divisions; j++) {
+					grid_entry("Out %d%%", oor_count[i][j] * 100 / div_pix[i][j]);
+				}
+				puts("|");
+				break;
+
+			case HISTOGRAM:
+				for(histcount = 0; histcount < histrows; histcount++) {
+					for(j = 0; j < divisions; j++) {
+						int l, val = 0;
+						for(l = 0; l < SM_HIST_SIZE / histrows; l++) {
+							val += small_histogram[i][j][histcount + l];
+						}
+						grid_bar('*', val * 40 * histrows / div_pix[i][j]);
+					}
+					puts("|");
+				}
+				break;
 		}
-		printf("|\n");
 	}
 	grid_hline();
 
@@ -248,33 +277,58 @@ void init_lut()
 
 int main(int argc, char *argv[])
 {
-	int opt;
-
 	freenect_context *kn;
 	freenect_device *kn_dev;
+	
+	int rows = 40, cols = 96; // terminal size
+	int opt;
 
-	while((opt = getopt(argc, argv, "g:")) != -1) {
+	if(getenv("LINES")) {
+		rows = atoi(getenv("LINES"));
+	}
+	if(getenv("COLUMNS")) {
+		cols = atoi(getenv("COLUMNS"));
+	}
+
+	// Handle command-line options
+	while((opt = getopt(argc, argv, "shg:")) != -1) {
 		switch(opt) {
+			case 's':
+				// Stats mode
+				disp_mode = STATS;
+				break;
+			case 'h':
+				// Histogram mode
+				disp_mode = HISTOGRAM;
+				break;
 			case 'g':
 				// Grid divisions
-				disp_mode = GRID;
 				divisions = atoi(optarg);
 				break;
 			default:
-				fprintf(stderr, "Usage: %s [-g divisions]\n", argv[0]);
-				fprintf(stderr, "Use one of:\n");
+				fprintf(stderr, "Usage: %s -[sh] [-g divisions]\n", argv[0]);
+				fprintf(stderr, "Use up to one of:\n");
+				fprintf(stderr, "\ts - Stats mode (default)\n");
+				fprintf(stderr, "\th - Histogram mode\n");
+				fprintf(stderr, "Use any of:\n");
 				fprintf(stderr, "\tg - Set grid divisions for both dimensions\n");
 				return -1;
 		}
 	}
+
+	boxwidth = (cols - 1) / divisions - 3;
+	if(boxwidth < 10) {
+		boxwidth = 10;
+	}
+	histrows = (rows - 2) / divisions - 1;
+	
+	init_lut();
 
 	if(signal(SIGINT, intr) == SIG_ERR ||
 			signal(SIGTERM, intr) == SIG_ERR) {
 		ERROR_OUT("Error setting signal handlers\n");
 		return -1;
 	}
-
-	init_lut();
 
 	if(freenect_init(&kn, NULL) < 0) {
 		ERROR_OUT("libfreenect init failed.\n");
