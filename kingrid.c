@@ -51,7 +51,6 @@
 static float depth_lut[2048];
 static int out_of_range = 0;
 static int divisions = 8; // Grid divisions
-static int div_pix = ((FREENECT_FRAME_W + 5) / 6) * ((FREENECT_FRAME_H + 5) / 6);
 static int boxwidth = 10; // Display grid box width, less border and padding
 static unsigned int frame = 0; // Frame count
 
@@ -117,28 +116,24 @@ void depth(freenect_device *kn_dev, void *depthbuf, uint32_t timestamp)
 	volatile uint16_t median[divisions][divisions];
 	volatile float avg[divisions][divisions];
 	volatile int oor_count[divisions][divisions];
+	volatile int div_pix[divisions][divisions];
 	int oor_total = 0; // Out of range count
 	volatile int i, j, medcount, histcount;
 
 	// Initialize data structures
 	memset(small_histogram, 0, sizeof(small_histogram));
 	memset(total, 0, sizeof(total));
+	memset(min, 0xff, sizeof(min));
 	memset(max, 0, sizeof(max));
 	memset(oor_count, 0, sizeof(oor_count));
-
-	for(i = 0; i < divisions; i++) {
-		for(j = 0; j < divisions; j++) {
-			// Set min to 2047 to allow depth_lut use without
-			// bounds checking when all pixels in a grid box are
-			// out of range
-			min[i][j] = 2047;
-		}
-	}
+	memset(div_pix, 0, sizeof(oor_count));
 
 	// Fill in grid stats
 	for(i = 0; i < FREENECT_FRAME_PIX; i++) {
 		int gridx = PX_TO_GRIDX(i);
 		int gridy = PX_TO_GRIDY(i);
+
+		div_pix[gridy][gridx]++; // TODO: Calculate this grid once
 		if(buf[i] == 2047) {
 			oor_count[gridy][gridx]++;
 			oor_total++;
@@ -159,29 +154,37 @@ void depth(freenect_device *kn_dev, void *depthbuf, uint32_t timestamp)
 	// Calculate grid averages
 	for(i = 0; i < divisions; i++) {
 		for(j = 0; j < divisions; j++) {
-			if(oor_count[i][j] < div_pix) {
-				avg[i][j] = (double)total[i][j] / (double)(div_pix - oor_count[i][j]);
-			} else {
-				avg[i][j] = 2047;
-			}
-			for(medcount = 0, histcount = 0; histcount < SM_HIST_SIZE; histcount++) {
-				medcount += small_histogram[i][j][histcount];
-				if(medcount >= (div_pix - oor_count[i][j]) / 2) {
-					break;
+			if(oor_count[i][j] < div_pix[i][j]) {
+				avg[i][j] = (double)total[i][j] / (double)(div_pix[i][j] - oor_count[i][j]);
+				for(medcount = 0, histcount = 0; histcount < SM_HIST_SIZE; histcount++) {
+					medcount += small_histogram[i][j][histcount];
+					if(medcount >= (div_pix[i][j] - oor_count[i][j]) / 2) {
+						break;
+					}
 				}
+				median[i][j] = histcount * 2048 / SM_HIST_SIZE;
+			} else {
+				min[i][j] = 2047;
+				max[i][j] = 2047;
+				avg[i][j] = 2047;
+				median[i][j] = 2047;
 			}
-			median[i][j] = histcount;
 		}
 	}
 
 	// Display grid stats
 	printf("\e[H\e[2J");
-	INFO_OUT("Time: %u frame: %d\n", timestamp, frame);
+	INFO_OUT("time: %u frame: %d out: %d%%\n", timestamp, frame, oor_total * 100 / FREENECT_FRAME_PIX);
 	for(i = 0; i < divisions; i++) {
 		grid_hline();
 
+		// This would be an interesting use of lambdas to return the
+		// value for a given column, allowing a "grid_row" function to
+		// be produced:
+		// grid_row("Pix %d", int lambda(int j) { return div_pix[i][j]; })
+
 		for(j = 0; j < divisions; j++) {
-			grid_entry("Tot %d", total[i][j]);
+			grid_entry("Pix %d", div_pix[i][j]);
 		}
 		printf("|\n");
 
@@ -196,17 +199,17 @@ void depth(freenect_device *kn_dev, void *depthbuf, uint32_t timestamp)
 		printf("|\n");
 
 		for(j = 0; j < divisions; j++) {
-			grid_entry("Med ~%f", depth_lut[median[i][j] * 2048 / SM_HIST_SIZE]);
-			}
+			grid_entry("Med ~%f", depth_lut[median[i][j]]);
+		}
 		printf("|\n");
 
 		for(j = 0; j < divisions; j++) {
 			grid_entry("Max %f", depth_lut[max[i][j]]);
 		}
 		printf("|\n");
-		
+
 		for(j = 0; j < divisions; j++) {
-			grid_entry("Out %d%%", oor_count[i][j] * 100 / div_pix);
+			grid_entry("Out %d%%", oor_count[i][j] * 100 / div_pix[i][j]);
 		}
 		printf("|\n");
 	}
@@ -255,7 +258,6 @@ int main(int argc, char *argv[])
 				// Grid divisions
 				disp_mode = GRID;
 				divisions = atoi(optarg);
-				div_pix = ((FREENECT_FRAME_W + (divisions - 1)) / divisions) * ((FREENECT_FRAME_H + (divisions - 1)) / divisions);
 				break;
 			default:
 				fprintf(stderr, "Usage: %s [-g divisions]\n", argv[0]);
