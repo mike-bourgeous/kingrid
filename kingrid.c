@@ -34,7 +34,7 @@
 #define ARRAY_SIZE(array) (sizeof((array)) / sizeof((array)[0]))
 
 
-#define SM_HIST_SIZE	32
+#define SM_HIST_SIZE	64
 
 // Get a depth pixel from an 11-bit buffer stored in uint16_t
 #define DPT(buf, x, y) (buf[(x) * FREENECT_FRAME_W + (y)])
@@ -140,7 +140,7 @@ void depth(freenect_device *kn_dev, void *depthbuf, uint32_t timestamp)
 			continue;
 		}
 
-		small_histogram[gridy][gridx][buf[i] * SM_HIST_SIZE / 2048]++;
+		small_histogram[gridy][gridx][buf[i] * SM_HIST_SIZE / 1024]++;
 
 		if(buf[i] < min[gridy][gridx]) {
 			min[gridy][gridx] = buf[i];
@@ -156,13 +156,15 @@ void depth(freenect_device *kn_dev, void *depthbuf, uint32_t timestamp)
 		for(j = 0; j < divisions; j++) {
 			if(oor_count[i][j] < div_pix[i][j]) {
 				avg[i][j] = (double)total[i][j] / (double)(div_pix[i][j] - oor_count[i][j]);
+
+				// FIXME: Something is wrong with median calculation
 				for(medcount = 0, histcount = 0; histcount < SM_HIST_SIZE; histcount++) {
 					medcount += small_histogram[i][j][histcount];
 					if(medcount >= (div_pix[i][j] - oor_count[i][j]) / 2) {
 						break;
 					}
 				}
-				median[i][j] = histcount * 2048 / SM_HIST_SIZE;
+				median[i][j] = (histcount * 1024 + (SM_HIST_SIZE / 2)) / SM_HIST_SIZE;
 			} else {
 				min[i][j] = 2047;
 				max[i][j] = 2047;
