@@ -50,7 +50,7 @@
 // Depth gamma look-up table (I wish freenect provided a user data struct for callbacks)
 static float depth_lut[2048];
 static int out_of_range = 0;
-static int divisions = 8; // Grid divisions
+static int divisions = 6; // Grid divisions
 static int boxwidth = 10; // Display grid box width, less border and padding
 static unsigned int frame = 0; // Frame count
 
