@@ -267,7 +267,10 @@ void depth(freenect_device *kn_dev, void *depthbuf, uint32_t timestamp)
 						if(min[i][j] == 2047) {
 							c = 6;
 						}
-						putchar(" .-+*%!"[c]);
+
+						// 1st character is closest, 5th character farthest
+						// 6th character is shown for out-of-range areas
+						putchar("8%+-._ "[c]);
 					}
 					putchar('\n');
 				}
