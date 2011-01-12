@@ -60,6 +60,14 @@ static enum {
 	HISTOGRAM,
 } disp_mode = STATS;
 
+static float lutf(float idx)
+{
+	int idx_int = (int)idx;
+	float k = idx_int - idx;
+
+	return depth_lut[idx_int] * k + depth_lut[idx_int + 1] * (1.0f - k);
+}
+
 void repeat_char(int c, int count)
 {
 	int i;
@@ -204,7 +212,7 @@ void depth(freenect_device *kn_dev, void *depthbuf, uint32_t timestamp)
 				puts("|");
 
 				for(j = 0; j < divisions; j++) {
-					grid_entry("Avg %f", depth_lut[(int)avg[i][j]]);
+					grid_entry("Avg %f", lutf(avg[i][j]));
 				}
 				puts("|");
 
