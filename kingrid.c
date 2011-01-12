@@ -47,7 +47,7 @@
 #define PX_TO_GRIDX(pix) (PX_TO_X(pix) * divisions / FREENECT_FRAME_W)
 #define PX_TO_GRIDY(pix) (PX_TO_Y(pix) * divisions / FREENECT_FRAME_H)
 
-// Depth gamma look-up table (I wish freenect provided a user data struct for callbacks)
+// Application state (I wish freenect provided a user data struct for callbacks)
 static float depth_lut[2048];
 static int out_of_range = 0;
 static int divisions = 6; // Grid divisions
@@ -58,6 +58,7 @@ static unsigned int frame = 0; // Frame count
 static enum {
 	STATS,
 	HISTOGRAM,
+	ASCII,
 } disp_mode = STATS;
 
 static float lutf(float idx)
@@ -197,7 +198,9 @@ void depth(freenect_device *kn_dev, void *depthbuf, uint32_t timestamp)
 	printf("\e[H\e[2J");
 	INFO_OUT("time: %u frame: %d out: %d%%\n", timestamp, frame, oor_total * 100 / FREENECT_FRAME_PIX);
 	for(i = 0; i < divisions; i++) {
-		grid_hline();
+		if(disp_mode != ASCII) {
+			grid_hline();
+		}
 
 		switch(disp_mode) {
 			case STATS:
@@ -249,9 +252,20 @@ void depth(freenect_device *kn_dev, void *depthbuf, uint32_t timestamp)
 					puts("|");
 				}
 				break;
+
+			case ASCII:
+				for(i = 0; i < divisions; i++) {
+					for(j = 0; j < divisions; j++) {
+						putchar(" -+*!ABCD"[(int)((depth_lut[min[i][j]] - 0.5f) * .5f)]);
+					}
+					putchar('\n');
+				}
+				break;
 		}
 	}
-	grid_hline();
+	if(disp_mode != ASCII) {
+		grid_hline();
+	}
 
 	fflush(stdout);
 
@@ -299,7 +313,7 @@ int main(int argc, char *argv[])
 	}
 
 	// Handle command-line options
-	while((opt = getopt(argc, argv, "shg:")) != -1) {
+	while((opt = getopt(argc, argv, "shag:")) != -1) {
 		switch(opt) {
 			case 's':
 				// Stats mode
@@ -308,6 +322,10 @@ int main(int argc, char *argv[])
 			case 'h':
 				// Histogram mode
 				disp_mode = HISTOGRAM;
+				break;
+			case 'a':
+				// ASCII art mode
+				disp_mode = ASCII;
 				break;
 			case 'g':
 				// Grid divisions
@@ -318,6 +336,7 @@ int main(int argc, char *argv[])
 				fprintf(stderr, "Use up to one of:\n");
 				fprintf(stderr, "\ts - Stats mode (default)\n");
 				fprintf(stderr, "\th - Histogram mode\n");
+				fprintf(stderr, "\ta - ASCII art mode\n");
 				fprintf(stderr, "Use any of:\n");
 				fprintf(stderr, "\tg - Set grid divisions for both dimensions\n");
 				return -1;
