@@ -54,6 +54,8 @@ static int divisions = 6; // Grid divisions
 static int boxwidth = 10; // Display grid box width, less border and padding
 static int histrows = 8; // Number of histogram rows per grid box
 static unsigned int frame = 0; // Frame count
+static float zmin = 0.5; // Near clipping plane in meters for ASCII art mode
+static float zmax = 5.0; // Far clipping plane '' ''
 
 static enum {
 	STATS,
@@ -256,7 +258,16 @@ void depth(freenect_device *kn_dev, void *depthbuf, uint32_t timestamp)
 			case ASCII:
 				for(i = 0; i < divisions; i++) {
 					for(j = 0; j < divisions; j++) {
-						putchar(" -+*!ABCD"[(int)((depth_lut[min[i][j]] - 0.5f) * .5f)]);
+						int c = (int)((depth_lut[min[i][j]] - zmin) * 4.0f / zmax);
+						if(c > 5) {
+							c = 5;
+						} else if(c < 0) {
+						       c = 0;
+						}
+						if(min[i][j] == 2047) {
+							c = 6;
+						}
+						putchar(" .-+*%!"[c]);
 					}
 					putchar('\n');
 				}
@@ -313,7 +324,7 @@ int main(int argc, char *argv[])
 	}
 
 	// Handle command-line options
-	while((opt = getopt(argc, argv, "shag:")) != -1) {
+	while((opt = getopt(argc, argv, "shag:z:Z:")) != -1) {
 		switch(opt) {
 			case 's':
 				// Stats mode
@@ -331,6 +342,14 @@ int main(int argc, char *argv[])
 				// Grid divisions
 				divisions = atoi(optarg);
 				break;
+			case 'z':
+				// Near clipping
+				zmin = atof(optarg);
+				break;
+			case 'Z':
+				// Far clipping
+				zmax = atof(optarg);
+				break;
 			default:
 				fprintf(stderr, "Usage: %s -[sh] [-g divisions]\n", argv[0]);
 				fprintf(stderr, "Use up to one of:\n");
@@ -339,6 +358,8 @@ int main(int argc, char *argv[])
 				fprintf(stderr, "\ta - ASCII art mode\n");
 				fprintf(stderr, "Use any of:\n");
 				fprintf(stderr, "\tg - Set grid divisions for both dimensions\n");
+				fprintf(stderr, "\tz - Set near clipping plane in meters for ASCII art mode (default 0.5)\n");
+				fprintf(stderr, "\tZ - Set far clipping plane in meters for ASCII art mode (default 5.0)\n");
 				return -1;
 		}
 	}
