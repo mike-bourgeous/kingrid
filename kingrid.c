@@ -37,7 +37,7 @@
 #define SM_HIST_SIZE	64
 
 // Convert pixel number to coordinates
-#define PX_TO_X(pix) ((pix) % FREENECT_FRAME_W)
+#define PX_TO_X(pix) (FREENECT_FRAME_W - 1 - (pix) % FREENECT_FRAME_W)
 #define PX_TO_Y(pix) ((pix) / FREENECT_FRAME_W)
 
 // Convert pixel number to grid entry
