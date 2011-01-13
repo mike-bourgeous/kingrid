@@ -2,6 +2,7 @@
  * Test Kinect/libfreenect program to display grid-based stats.
  * Created Jan. 11, 2011
  * (C)2011 Mike Bourgeous
+ * Distributed with no warranty under GPLv2 or later.
  *
  * Some ideas for more work:
  * 3D grid occupation - consider a 3D grid box as "occupied" if 20% or more of
