@@ -244,16 +244,6 @@ void depth(freenect_device *kn_dev, void *depthbuf, uint32_t timestamp)
 				for(histcount = 0; histcount < histrows; histcount++) {
 					for(j = 0; j < divisions; j++) {
 						int l, val = 0;
-						if(i == 2 && j == 4 && histcount == 0) { // XXX : this block is for debugging
-							printf("\n");
-							for(l = 0; l < SM_HIST_SIZE; l++) {
-								INFO_OUT("%d (%f): %d\n",
-										l * 1024 / SM_HIST_SIZE,
-										depth_lut[l * 1024 / SM_HIST_SIZE],
-										small_histogram[i][j][l]);
-							}
-							printf("\n");
-						}
 						for(l = 0; l < SM_HIST_SIZE / histrows; l++) {
 							val += small_histogram[i][j][histcount + l];
 						}

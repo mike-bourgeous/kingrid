@@ -1,0 +1,43 @@
+kingrid
+========
+Part of a collection of Kinect hacks and tools by Mike Bourgeous.
+
+kingrid displays basic statistics for each sector in a grid, displays a
+histogram for each sector in the grid, or displays an ASCII-art representation
+of the depth data.
+
+The histogram mode is currently partially broken.
+
+Requirements
+------------
+You will need libfreenect from the OpenKinect project to compile kingrid.
+
+Compiling and Running
+---------------------
+    $ make
+    $ ./kingrid
+
+Command-line Options
+--------------------
+    usage: ./kingrid -[sha] [-g divisions] [-zZ distance]
+	Use up to one of:
+		s - Stats mode (default)
+		h - Histogram mode
+		a - ASCII art mode
+	Use any of:
+		g - Set grid divisions for both dimensions
+		z - Set near clipping plane in meters for ASCII art mode (default 0.5)
+		Z - Set far clipping plane in meters for ASCII art mode (default 5.0)
+
+Sample Output
+-------------
+    $ ./kingrid
+
+    $ ./kingrid -h
+
+    $ ./kingrid -a -g 40 -z 0.75 -Z 1.0
+
+Copyright
+---------
+(C)2011 Mike Bourgeous, licensed under GPLv2 or later
+
