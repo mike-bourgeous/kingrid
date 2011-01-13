@@ -36,9 +36,6 @@
 
 #define SM_HIST_SIZE	64
 
-// Get a depth pixel from an 11-bit buffer stored in uint16_t
-#define DPT(buf, x, y) (buf[(x) * FREENECT_FRAME_W + (y)])
-
 // Convert pixel number to coordinates
 #define PX_TO_X(pix) ((pix) % FREENECT_FRAME_W)
 #define PX_TO_Y(pix) ((pix) / FREENECT_FRAME_W)
