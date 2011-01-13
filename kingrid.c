@@ -256,7 +256,7 @@ void depth(freenect_device *kn_dev, void *depthbuf, uint32_t timestamp)
 			case ASCII:
 				for(i = 0; i < divisions; i++) {
 					for(j = 0; j < divisions; j++) {
-						int c = (int)((depth_lut[min[i][j]] - zmin) * 4.0f / zmax);
+						int c = (int)((depth_lut[min[i][j]] - zmin) * 4.0f / (zmax - zmin));
 						if(c > 5) {
 							c = 5;
 						} else if(c < 0) {
