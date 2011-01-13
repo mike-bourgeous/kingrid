@@ -15,7 +15,8 @@ You will need libfreenect from the OpenKinect project to compile kingrid.
 Compiling and Running
 ---------------------
     $ make
-    $ ./kingrid
+    $ ./kingrid          # Grid stats mode
+    $ ./kingrid -a -g 40 # ASCII art mode (40x40)
 
 Command-line Options
 --------------------
