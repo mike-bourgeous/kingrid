@@ -42,31 +42,34 @@
 #define PX_TO_Y(pix) ((pix) / FREENECT_FRAME_W)
 
 // Convert pixel number to grid entry
-#define PX_TO_GRIDX(pix) (PX_TO_X(pix) * divisions / FREENECT_FRAME_W)
-#define PX_TO_GRIDY(pix) (PX_TO_Y(pix) * divisions / FREENECT_FRAME_H)
+#define PX_TO_GRIDX(pix) (PX_TO_X(pix) * data->divisions / FREENECT_FRAME_W)
+#define PX_TO_GRIDY(pix) (PX_TO_Y(pix) * data->divisions / FREENECT_FRAME_H)
 
-// Application state (I wish freenect provided a user data struct for callbacks)
-static float depth_lut[2048];
-static int out_of_range = 0;
-static int divisions = 6; // Grid divisions
-static int boxwidth = 10; // Display grid box width, less border and padding
-static int histrows = 8; // Number of histogram rows per grid box
-static unsigned int frame = 0; // Frame count
-static float zmin = 0.5; // Near clipping plane in meters for ASCII art mode
-static float zmax = 5.0; // Far clipping plane '' ''
+// Application state
+struct kingrid_info {
+	float depth_lut[2048];
+	unsigned int out_of_range:1;
+	unsigned int done:1;
+	int divisions;	// Grid divisions
+	int boxwidth;	// Display grid box width, less border and padding
+	int histrows;	// Number of histogram rows per grid box
+	unsigned int frame; // Frame count
+	float zmin;	// Near clipping plane in meters for ASCII art mode
+	float zmax;	// Far clipping plane '' ''
+	enum {
+		STATS,
+		HISTOGRAM,
+		ASCII,
+	} disp_mode;
+};
 
-static enum {
-	STATS,
-	HISTOGRAM,
-	ASCII,
-} disp_mode = STATS;
 
-static float lutf(float idx)
+static float lutf(struct kingrid_info *data, float idx)
 {
 	int idx_int = (int)idx;
 	float k = idx_int - idx;
 
-	return depth_lut[idx_int] * k + depth_lut[idx_int + 1] * (1.0f - k);
+	return data->depth_lut[idx_int] * k + data->depth_lut[idx_int + 1] * (1.0f - k);
 }
 
 void repeat_char(int c, int count)
@@ -78,37 +81,38 @@ void repeat_char(int c, int count)
 }
 
 // Prints horizontal border between grid rows
-void grid_hline()
+void grid_hline(struct kingrid_info *data)
 {
 	int i;
-	for(i = 0; i < divisions; i++) {
+	for(i = 0; i < data->divisions; i++) {
 		putchar('+');
-		repeat_char('-', boxwidth + 2);
+		repeat_char('-', data->boxwidth + 2);
 	}
 	puts("+");
 }
 
 // Prints a single row in a single grid box
-void grid_box_row(const char *text)
+void grid_box_row(struct kingrid_info *data, const char *text)
 {
-	printf("| %*s ", boxwidth, text);
+	printf("| %*s ", data->boxwidth, text);
 }
 
 // Prints a formatted single row in a single grid box
-void __attribute__((format(printf, 1, 2))) grid_entry(const char *format, ...)
+__attribute__((format(printf, 2, 3)))
+void grid_entry(struct kingrid_info *data, const char *format, ...)
 {
-	char buf[boxwidth + 1];
+	char buf[data->boxwidth + 1];
 	va_list args;
 
 	va_start(args, format);
-	vsnprintf(buf, boxwidth + 1, format, args);
+	vsnprintf(buf, data->boxwidth + 1, format, args);
 	va_end(args);
 
-	grid_box_row(buf);
+	grid_box_row(data, buf);
 }
 
 // Prints a horizontal bar chart element in a grid box
-void grid_bar(int c, int percent)
+void grid_bar(struct kingrid_info *data, int c, int percent)
 {
 	int charcount;
 
@@ -118,27 +122,28 @@ void grid_bar(int c, int percent)
 		percent = 0;
 	}
 
-	charcount = percent * boxwidth / 100;
+	charcount = percent * data->boxwidth / 100;
 
 	printf("| ");
 	repeat_char(c, charcount);
-	repeat_char(' ', boxwidth - charcount);
+	repeat_char(' ', data->boxwidth - charcount);
 	putchar(' ');
 }
 
 void depth(freenect_device *kn_dev, void *depthbuf, uint32_t timestamp)
 {
+	struct kingrid_info *data = freenect_get_user(kn_dev);
 	uint16_t *buf = (uint16_t *)depthbuf;
-	volatile int small_histogram[divisions][divisions][SM_HIST_SIZE];
-	volatile int total[divisions][divisions];
-	volatile uint16_t min[divisions][divisions];
-	volatile uint16_t max[divisions][divisions];
-	volatile uint16_t median[divisions][divisions];
-	volatile float avg[divisions][divisions];
-	volatile int oor_count[divisions][divisions];
-	volatile int div_pix[divisions][divisions];
+	int small_histogram[data->divisions][data->divisions][SM_HIST_SIZE];
+	int total[data->divisions][data->divisions];
+	uint16_t min[data->divisions][data->divisions];
+	uint16_t max[data->divisions][data->divisions];
+	uint16_t median[data->divisions][data->divisions];
+	float avg[data->divisions][data->divisions];
+	int oor_count[data->divisions][data->divisions];
+	int div_pix[data->divisions][data->divisions];
 	int oor_total = 0; // Out of range count
-	volatile int i, j, medcount, histcount;
+	int i, j, medcount, histcount;
 
 	// Initialize data structures
 	memset(small_histogram, 0, sizeof(small_histogram));
@@ -172,8 +177,8 @@ void depth(freenect_device *kn_dev, void *depthbuf, uint32_t timestamp)
 	}
 
 	// Calculate grid averages
-	for(i = 0; i < divisions; i++) {
-		for(j = 0; j < divisions; j++) {
+	for(i = 0; i < data->divisions; i++) {
+		for(j = 0; j < data->divisions; j++) {
 			if(oor_count[i][j] < div_pix[i][j]) {
 				avg[i][j] = (double)total[i][j] / (double)(div_pix[i][j] - oor_count[i][j]);
 
@@ -196,67 +201,78 @@ void depth(freenect_device *kn_dev, void *depthbuf, uint32_t timestamp)
 
 	// Display grid stats
 	printf("\e[H\e[2J");
-	INFO_OUT("time: %u frame: %d out: %d%%\n", timestamp, frame, oor_total * 100 / FREENECT_FRAME_PIX);
-	for(i = 0; i < divisions; i++) {
-		if(disp_mode != ASCII) {
-			grid_hline();
+	INFO_OUT("time: %u frame: %d out: %d%%\n", timestamp, data->frame, oor_total * 100 / FREENECT_FRAME_PIX);
+	for(i = 0; i < data->divisions; i++) {
+		if(data->disp_mode != ASCII) {
+			grid_hline(data);
 		}
 
-		switch(disp_mode) {
+		switch(data->disp_mode) {
 			case STATS:
 				// This would be an interesting use of lambdas to return the
 				// value for a given column, allowing a "grid_row" function to
 				// be produced:
 				// grid_row("Pix %d", int lambda(int j) { return div_pix[i][j]; })
 
-				for(j = 0; j < divisions; j++) {
-					grid_entry("Pix %d", div_pix[i][j]);
+				for(j = 0; j < data->divisions; j++) {
+					grid_entry(data, "Pix %d", div_pix[i][j]);
 				}
 				puts("|");
 
-				for(j = 0; j < divisions; j++) {
-					grid_entry("Avg %f", lutf(avg[i][j]));
+				for(j = 0; j < data->divisions; j++) {
+					grid_entry(data, "Avg %f", lutf(data, avg[i][j]));
 				}
 				puts("|");
 
-				for(j = 0; j < divisions; j++) {
-					grid_entry("Min %f", depth_lut[min[i][j]]);
+				for(j = 0; j < data->divisions; j++) {
+					grid_entry(data, "Min %f", data->depth_lut[min[i][j]]);
 				}
 				puts("|");
 
-				for(j = 0; j < divisions; j++) {
-					grid_entry("Med ~%f", depth_lut[median[i][j]]);
+				for(j = 0; j < data->divisions; j++) {
+					grid_entry(data, "Med ~%f", data->depth_lut[median[i][j]]);
 				}
 				puts("|");
 
-				for(j = 0; j < divisions; j++) {
-					grid_entry("Max %f", depth_lut[max[i][j]]);
+				for(j = 0; j < data->divisions; j++) {
+					grid_entry(data, "Max %f", data->depth_lut[max[i][j]]);
 				}
 				puts("|");
 
-				for(j = 0; j < divisions; j++) {
-					grid_entry("Out %d%%", oor_count[i][j] * 100 / div_pix[i][j]);
+				for(j = 0; j < data->divisions; j++) {
+					grid_entry(data, "Out %d%%", oor_count[i][j] * 100 / div_pix[i][j]);
 				}
 				puts("|");
 				break;
 
 			case HISTOGRAM:
-				for(histcount = 0; histcount < histrows; histcount++) {
-					for(j = 0; j < divisions; j++) {
+				for(histcount = 0; histcount < data->histrows; histcount++) {
+					for(j = 0; j < data->divisions; j++) {
 						int l, val = 0;
-						for(l = 0; l < SM_HIST_SIZE / histrows; l++) {
+						if(i != i && i == 2 && j == 4 && histcount == 0) { // XXX : this block is for debugging and won't be entered
+							printf("\n");
+							for(l = 0; l < SM_HIST_SIZE; l++) {
+								INFO_OUT("%d (%f): %d\n",
+										l * 1024 / SM_HIST_SIZE,
+										data->depth_lut[l * 1024 / SM_HIST_SIZE],
+										small_histogram[i][j][l]);
+							}
+							printf("\n");
+						}
+						for(l = 0; l < SM_HIST_SIZE / data->histrows; l++) {
 							val += small_histogram[i][j][histcount + l];
 						}
-						grid_bar('*', val * 40 * histrows / div_pix[i][j]);
+						grid_bar(data, '*', val * 40 * data->histrows / div_pix[i][j]);
 					}
 					puts("|");
 				}
 				break;
 
 			case ASCII:
-				for(i = 0; i < divisions; i++) {
-					for(j = 0; j < divisions; j++) {
-						int c = (int)((depth_lut[min[i][j]] - zmin) * 4.0f / (zmax - zmin));
+				for(i = 0; i < data->divisions; i++) {
+					for(j = 0; j < data->divisions; j++) {
+						int c = (int)((data->depth_lut[min[i][j]] - data->zmin) * 
+								4.0f / (data->zmax - data->zmin));
 						if(c > 5) {
 							c = 5;
 						} else if(c < 0) {
@@ -275,32 +291,32 @@ void depth(freenect_device *kn_dev, void *depthbuf, uint32_t timestamp)
 				break;
 		}
 	}
-	if(disp_mode != ASCII) {
-		grid_hline();
+	if(data->disp_mode != ASCII) {
+		grid_hline(data);
 	}
 
 	fflush(stdout);
 
 	// Make LED red if more than 35% of the image is out of range (can't
 	// set LED in callback for some reason)
-	out_of_range = oor_total > FREENECT_FRAME_PIX * 35 / 100;
+	data->out_of_range = oor_total > FREENECT_FRAME_PIX * 35 / 100;
 
-	frame++;
+	data->frame++;
 }
 
 
-static int done = 0;
+static struct kingrid_info *sigdata;
 
 void intr(int signum)
 {
 	INFO_OUT("Exiting due to signal %d (%s)\n", signum, strsignal(signum));
-	done = 1;
+	sigdata->done = 1;
 
 	signal(signum, exit);
 }
 
 // http://groups.google.com/group/openkinect/browse_thread/thread/31351846fd33c78/e98a94ac605b9f21#e98a94ac605b9f21
-void init_lut()
+void init_lut(float depth_lut[])
 {
 	int i;
 
@@ -311,11 +327,22 @@ void init_lut()
 
 int main(int argc, char *argv[])
 {
+	struct kingrid_info data;
 	freenect_context *kn;
 	freenect_device *kn_dev;
-	
 	int rows = 40, cols = 96; // terminal size
 	int opt;
+
+	sigdata = &data;
+	data.out_of_range = 0;
+	data.done = 0;
+	data.divisions = 6;
+	data.boxwidth = 10;
+	data.histrows = 8;
+	data.frame = 0;
+	data.zmin = 0.5;
+	data.zmax = 5.0;
+	data.disp_mode = STATS;
 
 	if(getenv("LINES")) {
 		rows = atoi(getenv("LINES"));
@@ -329,27 +356,27 @@ int main(int argc, char *argv[])
 		switch(opt) {
 			case 's':
 				// Stats mode
-				disp_mode = STATS;
+				data.disp_mode = STATS;
 				break;
 			case 'h':
 				// Histogram mode
-				disp_mode = HISTOGRAM;
+				data.disp_mode = HISTOGRAM;
 				break;
 			case 'a':
 				// ASCII art mode
-				disp_mode = ASCII;
+				data.disp_mode = ASCII;
 				break;
 			case 'g':
 				// Grid divisions
-				divisions = atoi(optarg);
+				data.divisions = atoi(optarg);
 				break;
 			case 'z':
 				// Near clipping
-				zmin = atof(optarg);
+				data.zmin = atof(optarg);
 				break;
 			case 'Z':
 				// Far clipping
-				zmax = atof(optarg);
+				data.zmax = atof(optarg);
 				break;
 			default:
 				fprintf(stderr, "Usage: %s -[sha] [-g divisions] [-zZ distance]\n", argv[0]);
@@ -365,13 +392,13 @@ int main(int argc, char *argv[])
 		}
 	}
 
-	boxwidth = (cols - 1) / divisions - 3;
-	if(boxwidth < 10) {
-		boxwidth = 10;
+	data.boxwidth = (cols - 1) / data.divisions - 3;
+	if(data.boxwidth < 10) {
+		data.boxwidth = 10;
 	}
-	histrows = (rows - 2) / divisions - 1;
+	data.histrows = (rows - 2) / data.divisions - 1;
 	
-	init_lut();
+	init_lut(data.depth_lut);
 
 	if(signal(SIGINT, intr) == SIG_ERR ||
 			signal(SIGTERM, intr) == SIG_ERR) {
@@ -396,6 +423,7 @@ int main(int argc, char *argv[])
 		return -1;
 	}
 
+	freenect_set_user(kn_dev, &data);
 	freenect_set_tilt_degs(kn_dev, -5);
 	freenect_set_led(kn_dev, LED_GREEN);
 	freenect_set_depth_callback(kn_dev, depth);
@@ -403,11 +431,11 @@ int main(int argc, char *argv[])
 
 	freenect_start_depth(kn_dev);
 
-	int last_oor = out_of_range;
-	while(!done && freenect_process_events(kn) >= 0) {
-		if(last_oor != out_of_range) {
-			freenect_set_led(kn_dev, out_of_range ? LED_BLINK_RED_YELLOW : LED_GREEN);
-			last_oor = out_of_range;
+	int last_oor = data.out_of_range;
+	while(!data.done && freenect_process_events(kn) >= 0) {
+		if(last_oor != data.out_of_range) {
+			freenect_set_led(kn_dev, data.out_of_range ? LED_BLINK_RED_YELLOW : LED_GREEN);
+			last_oor = data.out_of_range;
 		}
 	}
 
